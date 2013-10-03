@@ -405,7 +405,7 @@ function sfudora_ajaxplorer_ingest_set_xacml($objects, $xacml) {
  * @returns string $temp_file_path
  *   The path of the file in the tmp directory.
  */
-function sfudora_ajaxplorer_get_file_data($download_url) {
+function sfudora_ajaxplorer_get_file_data($download_url, $is_zip = False) {
 
   // We want to pass the cookie information.
   $temparray = array();
@@ -415,7 +415,15 @@ function sfudora_ajaxplorer_get_file_data($download_url) {
   $temparray[] = 'path:/';
   $cookies = implode('; ', $temparray);
 
-  $temp_file_path = drupal_tempnam('temporary://', 'ajaxplorer_file');
+  $tempo_file_name = 'ajaxplorer_temp';
+  if($is_zip) {
+    
+    $temp_file_name += '.zip';
+    
+  }
+  $temp_file_path = file_create_filename($tempo_file_name,'temporary://'); 
+
+    
   $fp = fopen($temp_file_path, 'w+');
 
   $ch = curl_init($download_url);
