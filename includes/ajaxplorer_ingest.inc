@@ -134,6 +134,10 @@ function sfudora_ajaxplorer_ingest_form($form, &$form_state, $params) {
     ),
   );
 
+  if ($params['is_dir'] == 'true') {
+    sfudora_folder_ingest_form($form, $form_state, $params);
+  }
+
   // Set a specific callback for the submit button.
   $form['submit'] = array(
     '#type' => 'submit',
@@ -143,7 +147,13 @@ function sfudora_ajaxplorer_ingest_form($form, &$form_state, $params) {
   return $form;
 }
 
-
+function sfudora_folder_ingest_form(&$form, &$form_state, $params) {
+  $file = $params['download_query_params']['file'];
+  $path = explode('/', $file);
+  $name = end($path);
+  $form['titleInfo']['title']['#type'] = 'hidden';
+  $form['titleInfo']['title']['#value'] = $name;
+}
 /**
  * Form validation function.
  */
@@ -179,6 +189,21 @@ function sfudora_ajaxplorer_ingest_form_submit(&$form, &$form_state) {
   // iterate over all the contents, creating objects as necessary.
   // TODO: We need to determine if single or folder ingest.
   // TODO: We need to determine if object is generic based on file type.
+  $params = $form_state['storage']['ajaxplorer_params'];
+  if ($params['is_dir'] == "true") {
+    sfudora_ingest_folder(&$form, &$form_state);
+  }
+  else {
+    sfudora_ingest_single_object(&$form, &$form_state);
+  }
+  drupal_goto('islandora/object/islandora:root');
+}
+
+/**
+ * Ingest single file submission function.
+ */
+
+function sfudora_ingest_single_object(&$form, &$form_state, $parent_collection = 'islandora:root') {
   module_load_include('inc', 'islandora', 'includes/utilities');
   $content_model = 'sfu:genericCModel';
   $parent_collection = 'islandora:root';
@@ -215,11 +240,52 @@ function sfudora_ajaxplorer_ingest_form_submit(&$form, &$form_state) {
   // Store the Fedora Object.
   islandora_add_object($new_object);
   sfudora_ajaxplorer_add_file_object_relationship($form_state['storage']['download_url'], $new_object);
-  
+
   // Delete all Temp files
   file_unmanaged_delete($temp_obj_file_path);
-  drupal_goto('islandora/object/islandora:root');
 
+}
+
+function sfudora_ingest_folder(&$form, &$form_state) {
+  $folder = sfudora_ajaxplorer_get_file_data($form_state['storage']['download_url']);
+  $tmp_path = file_directory_temp();
+  $filename = $tmp_path . '/' . $form_state['values']['titleInfo']['title'] . '.zip';
+  file_put_contents($filename, $folder);
+  $output = shell_exec("unzip $filename -d $tmp_path");
+  $tmp_folder = $tmp_path . '/' . $form_state['values']['titleInfo']['title'];
+  sfudora_ingest_collection(&$form, &$form_state, $tmp_folder, "islandora:root");
+}
+
+function sfudora_ingest_collection(&$form, &$form_state, $filedir, $parent) {
+  module_load_include('inc', 'islandora', 'includes/utilities');
+  $content_model = 'islandora:collectionCModel';
+  $parent_collection = $parent;
+  $title = $form_state['values']['titleInfo']['title'];
+  // Create the new Fedora Object.
+  $new_object = islandora_prepare_new_object("sfu", $title, array(), array($content_model), array(array('relationship' => 'isMemberOfCollection', 'pid' => $parent_collection)));
+  // Store the Fedora Object.
+  islandora_add_object($new_object);
+  $files = scandir($filedir);
+  foreach ($files as $key => $file) {
+    if (($file !== '.') && ($file !== '..')) {
+      $name_array = explode('.', $file);
+      $name = "";
+      for ($i = 0; $i < sizeof($name_array); $i++) {
+        $name = $name . $name_array[$i];
+      }
+      $form['titleInfo']['title']['#value'] = $name;
+      $form_state['values']['titleInfo']['title'] = $name;
+      $is_dir = is_dir($filedir . '/' . $file);
+      if ($is_dir) {
+        sfudora_ingest_collection(&$form, &$form_state, $filedir . '/' . $file, $new_object->id);
+      }
+      else {
+        $form_state['storage']['url'] = $filedir . '/' . $file;
+        unset($form_state['storage']['download_url']);
+        sfudora_ingest_single_object(&$form, &$form_state, $new_object->id);
+      } 
+    }
+  }
 }
 
 /**
